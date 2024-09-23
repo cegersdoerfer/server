@@ -46,20 +46,20 @@ while read -r line; do
     majmin_to_dev[$MAJMIN]=$NAME
 done < <(lsblk -P -o MAJ:MIN,NAME)
 
-# Function to get OST devices
-get_devices() {
-    local type=$1
-    declare -n dev_array=$2
-    while read -r line; do
-        name=$(echo "$line" | awk -F '[.=]' '{print $2}')
-        majmin=$(echo "$line" | awk -F '=' '{print $2}')
-        device=${majmin_to_dev[$majmin]}
-        if [ -n "$device" ]; then
-            dev_array[$name]=$device
-        else
-            echo "Warning: Device not found for $type $name with major:minor $majmin"
+# Function to get OST devices from the 'mount' command
+get_ost_devices_from_mount() {
+    declare -n dev_array=$1
+    while read -r device mount_point fs_type options; do
+        if [[ "$fs_type" == "lustre" ]]; then
+            # Extract svname from options
+            svname=$(echo "$options" | tr ',' '\n' | grep '^svname=' | cut -d'=' -f2)
+            if [[ "$svname" == *OST* ]]; then
+                name="$svname"
+                device_name=$(basename "$device")
+                dev_array[$name]=$device_name
+            fi
         fi
-    done < <(lctl get_param "$type".*.dev_name 2>/dev/null)
+    done < <(findmnt -n -t lustre -o SOURCE,TARGET,FSTYPE,OPTIONS)
 }
 
 # Function to get MDT devices from the 'mount' command
@@ -80,7 +80,7 @@ get_mdt_devices_from_mount() {
 
 # Get OST devices
 declare -A ost_device
-get_devices "obdfilter" ost_device
+get_ost_devices_from_mount ost_device
 
 # Get MDT devices
 declare -A mdt_device
